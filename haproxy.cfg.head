@@ -1,0 +1,37 @@
+global
+    log         127.0.0.1 local2
+    chroot      /var/lib/haproxy
+    pidfile     /var/run/haproxy.pid
+    stats       socket /var/lib/haproxy/stats
+    maxconn     5000
+    user        haproxy
+    group       haproxy
+    daemon
+
+defaults
+    mode    http
+    log     global
+    option  httplog clf
+    option  dontlognull
+    option  http-server-close
+    option  forwardfor except 127.0.0.0/8
+    option  redispatch
+    retries 3
+    timeout http-request    10s
+    timeout queue           1m
+    timeout connect         10s
+    timeout client          1m
+    timeout server          1m
+    timeout http-keep-alive 10s
+    timeout check           10s
+
+
+#---------------------------------------------------------------------
+# main frontend which proxys to the backends
+#---------------------------------------------------------------------
+frontend HTTP-LoadBalance
+    bind *:80
+    compression algo gzip
+    compression type text/html text/plain text/javascript application/javascript application/xml text/css
+
+

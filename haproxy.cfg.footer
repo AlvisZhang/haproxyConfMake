@@ -1,0 +1,9 @@
+frontend HAProxy-Stats
+    bind *:8080
+    stats enable
+    stats refresh 5s
+    stats show-node
+    stats show-legends
+    stats uri /haproxy?stats
+    no log
+

@@ -1,0 +1,125 @@
+#!/usr/bin/php
+<?php
+ /**
+  * @author Alvis Zhang <han.zhang@eub-inc.com>
+  */
+
+# define some variables for config read & write
+$pathInfo = pathinfo(__FILE__) ;
+$configName = "haproxy.cfg";
+$configHead = $configName.".head";
+$configFooter = $configName.".footer";
+$configDir = "conf.d";
+
+# walk in conf.d to find .conf file
+$content = array();
+$dir = scandir ($pathInfo['dirname']."/".$configDir);
+foreach ($dir as $file ) {
+    $content = parseFile ($pathInfo['dirname']."/".$configDir."/".$file, $content);
+}
+
+if (! empty ($content) && count ($content['frontend']) == count ($content['backend'])) {
+    # sort frontend host (hdr first) and check for duplicate host 
+    foreach ($content['frontend'] as $key => $value) {
+        foreach ($value as $host) {
+            $hosttest[] = $host['host'];
+        }
+        
+        if (onlyHdr ($value)) {
+            $frontend_hdr[$key] = $value;
+        } else {
+            $frontend_end[$key] = $value;
+        }
+    }
+    @$frontend = array_merge ($frontend_hdr, $frontend_end);
+    
+    foreach (array_count_values ($hosttest) as $key => $value) {
+        if ($value > 1) die ("Got duplicate hostname ".$key." !\n");
+    }
+
+    # splice config
+    $configFrontend = "";
+    $configBackend = "";
+    foreach ($frontend as $key => $value) {
+        # segment frontend
+        foreach ($value as $host) {
+            $configFrontend .= "    acl ".$key." ".$host['type']."(host) -i ".$host['host']."\n";
+        }
+        $configFrontend .= "    use_backend ".$key." if ".$key."\n";
+        $configFrontend .= "\n";
+        
+        # segment backend
+        $configBackend .= "backend ".$key."\n";
+        $configBackend .= "    balance ".$content['balance'][$key]."\n";
+        if (! empty ($content['httpchk'][$key])) $configBackend .= "    option httpchk ".$content['httpchk'][$key]."\n";
+        $configBackend .= "\n";
+        foreach ($content['backend'][$key] as $server) {
+            $servername = split (':', $server);
+            $configBackend .= "    server ".$servername[0]."\t".$server." check \n";
+        }
+        $configBackend .= "\n";
+    }
+    
+} else die ("Didn't find any conf file in ".$pathInfo['dirname']."/".$configDir." !\n");
+
+//var_dump ($configFrontend, $configBackend);
+# the full haproxy.conf content
+$haproxyConf = file_get_contents ($pathInfo['dirname']."/".$configHead);
+$haproxyConf .= $configFrontend."\n";
+$haproxyConf .= $configBackend."\n";
+$haproxyConf .= file_get_contents ($pathInfo['dirname']."/".$configFooter);
+
+file_put_contents ($pathInfo['dirname']."/".$configName, $haproxyConf);
+exit;
+
+function onlyHdr ($hosts) {
+    foreach ($hosts as $host) {
+        if ($host['type'] != 'hdr') return false;
+    }
+
+    return true;
+}
+
+function parseFile ($file, $content) {
+    if (is_file ($file) && preg_match ('/^(.*)\.conf$/', $file, $host)) {
+        $hostname = basename ($host[1]);
+        $conf = parse_ini_file ($file, true);
+        $content = parseConf ($conf, $hostname, $content);
+    }
+    
+    return $content;
+}
+
+
+function parseConf ($conf, $hostname, $content) {
+    # get frontend host setting
+    if (is_array (@$conf['frontend']['hdr'])) {
+        foreach ($conf['frontend']['hdr'] as $host) {
+            $content['frontend'][$hostname][] = array ('type' => 'hdr', 'host' => $host);
+        }
+    } elseif (is_array (@$conf['frontend']['hdr_end'])) {
+        foreach ($conf['frontend']['hdr_end'] as $host) {
+            $content['frontend'][$hostname][] = array ('type' => 'hdr_end', 'host' => $host);
+        }
+    } else die ("Conf file for host ".$hostname." hasn't frontend setting !\n");
+
+    # get backend host setting
+    if (is_array (@$conf['backend']['server'])) {
+        foreach ($conf['backend']['server'] as $server) {
+            $content['backend'][$hostname][] = "$server";
+        }
+    } else die ("Conf file for host ".$hostname." hasn't backend setting !\n");
+
+    if (empty ($conf['backend']['balance'])) {
+        $content['balance'][$hostname] = "roundrobin";
+    } else {
+        $content['balance'][$hostname] = $conf['backend']['balance'];
+    }
+
+    # get httpchk cmd setting
+    if (! empty ($conf['httpchk']['cmd'])) {
+        $content['httpchk'][$hostname] = $conf['httpchk']['cmd'];
+    }
+
+    return $content;
+}
