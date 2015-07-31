@@ -4,18 +4,41 @@
   * @author Alvis Zhang <han.zhang@eub-inc.com>
   */
 
+$opts = getopt("d:o:h");
+
+
+if (isset($opts['h'])) {
+    echo "\t\t-d haproxy host conf.d Directory \n";
+    echo "\t\t-o haproxy output file \n";
+    echo "\t\t-h help \n";
+    exit;
+}
+
 # define some variables for config read & write
 $pathInfo = pathinfo(__FILE__) ;
+if (isset($opts['d']) && is_dir ($opts['d'])) {
+    $configDir = $opts['d'];
+} else {
+    $configDir = $pathInfo['dirname']."/"."conf.d";
+}
 $configName = "haproxy.cfg";
-$configHead = $configName.".head";
-$configFooter = $configName.".footer";
-$configDir = "conf.d";
+$configHead = $configDir."/".$configName.".head";
+if (! is_file($configHead)) die ("Miss ".$configHead." file !\n");
+$configFooter = $configDir."/".$configName.".footer";
+if (! is_file($configFooter)) die ("Miss ".$configFooter." file !\n");
+if (isset($opts['o'])) {
+    $configOut = $opts['o'];
+} else {
+    $configOut = $pathInfo['dirname']."/".$configName.".out";
+}
+
+
 
 # walk in conf.d to find .conf file
 $content = array();
-$dir = scandir ($pathInfo['dirname']."/".$configDir);
+$dir = scandir ($configDir);
 foreach ($dir as $file ) {
-    $content = parseFile ($pathInfo['dirname']."/".$configDir."/".$file, $content);
+    $content = parseFile ($configDir."/".$file, $content);
 }
 
 if (! empty ($content) && count ($content['frontend']) == count ($content['backend'])) {
@@ -62,15 +85,15 @@ if (! empty ($content) && count ($content['frontend']) == count ($content['backe
     
 } else die ("Didn't find any conf file in ".$pathInfo['dirname']."/".$configDir." !\n");
 
-//var_dump ($configFrontend, $configBackend);
 # the full haproxy.conf content
-$haproxyConf = file_get_contents ($pathInfo['dirname']."/".$configHead);
+$haproxyConf = file_get_contents ($configHead);
 $haproxyConf .= $configFrontend."\n";
 $haproxyConf .= $configBackend."\n";
-$haproxyConf .= file_get_contents ($pathInfo['dirname']."/".$configFooter);
+$haproxyConf .= file_get_contents ($configFooter);
 
-file_put_contents ($pathInfo['dirname']."/".$configName, $haproxyConf);
-exit;
+file_put_contents ($configOut, $haproxyConf);
+
+exit (1);
 
 function onlyHdr ($hosts) {
     foreach ($hosts as $host) {
